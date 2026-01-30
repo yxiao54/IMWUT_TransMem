@@ -1,4 +1,3 @@
-# IMWUT_TransMem
 # TransMemNet: Resilience-Guided Physiological Craving Detection
 
 This repository contains the implementation for **TransMemNet**, a resilience-guided framework for physiological craving detection under subject-independent evaluation. The code supports training and evaluation of the proposed model, ablation variants, and baseline methods using a unified training pipeline.
