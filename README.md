@@ -23,8 +23,8 @@ This anonymized repository is provided to support reproducibility during double-
 ├── scripts/
 │   └── main.py       # Main entry point for training and evaluation
 ├── Stat_Analysis/ # Statistical analysis scripts
-│   ├── RQ1.py       # Analysis code for Research Question 1
-│   └── RQ2.py       # Analysis code for Research Question 2
+│   ├── RQ1.py        # Analysis code for Research Question 1
+│   └── RQ2.py        # Analysis code for Research Question 2
 └── README.md
 ```
 **Note:** The `dataloaders/` and `data/` directories are not included in this anonymized repository due to data privacy and human-subject protection requirements.
