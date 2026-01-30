@@ -22,6 +22,9 @@ This anonymized repository is provided to support reproducibility during double-
 │   └── run_cv.py
 ├── scripts/
 │   └── main.py       # Main entry point for training and evaluation
+├── Stat_Analysis/ # Statistical analysis scripts
+│ ├── RQ1.py # Analysis code for Research Question 1
+│ └── RQ2.py # Analysis code for Research Question 2
 └── README.md
 ```
 **Note:** The `dataloaders/` and `data/` directories are not included in this anonymized repository due to data privacy and human-subject protection requirements.
@@ -63,7 +66,11 @@ All models are instantiated through a unified factory interface (`models/factory
 
 ---
 
+## Statistical Analysis
 
+The `Stat_Analysis/` directory contains standalone scripts used to reproduce the statistical analyses reported for Research Questions 1 and 2 in the paper. These scripts implement the feature-level and system-level physiological analyses described in the manuscript and are independent of the model training pipeline.
+
+---
 
 ## Training and Evaluation
 
