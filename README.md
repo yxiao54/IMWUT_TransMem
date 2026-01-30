@@ -9,7 +9,7 @@ This anonymized repository is provided to support reproducibility during double-
 
 ## Repository Structure
 
-.
+```
 ├── engine/           # Training and evaluation engine
 │   └── engine.py
 ├── losses/           # Loss functions (standard and DG objectives)
@@ -23,7 +23,7 @@ This anonymized repository is provided to support reproducibility during double-
 ├── scripts/
 │   └── main.py       # Main entry point for training and evaluation
 └── README.md
-
+```
 **Note:** The `dataloaders/` and `data/` directories are not included in this anonymized repository due to data privacy and human-subject protection requirements.
 
 ---
