@@ -234,9 +234,7 @@ class BaselineNet(UnifiedTwoFlowBase):
     def forward(self, phys_feat, good_embed, bad_embed):
         mem = torch.cat([good_embed, bad_embed], dim=-1)
         t_base = self.encoder(phys_feat)
-        #t_mem = self.mem_proj(mem)
-
-        logits = self.classifier_base(t_base) #+ self.classifier_mem(t_mem)
+        logits = self.classifier_base(t_base)
         return {"logits": logits}
  
         
@@ -353,4 +351,5 @@ class EnsembleNet(UnifiedTwoFlowBase):
         t_base = self.encoder(phys_feat)
         logits = torch.stack([h(t_base) for h in self.heads], dim=0).mean(dim=0)
         return {"logits": logits}
+
 
