@@ -18,13 +18,14 @@ This anonymized repository is provided to support reproducibility during double-
 │   ├── factory.py
 │   └── *.py
 ├── runners/          # Cross-validation and experiment runners
-│   └── run_cv.py
-├── scripts/
-│   └── main.py       # Main entry point for training and evaluation
+│   └── run_cv.py   
+├── feature/
+│   └── feature.py    # Feature extraction code
 ├── Stat_Analysis/ # Statistical analysis scripts
 │   ├── RQ1.py        # Analysis code for Research Question 1
 │   └── RQ2.py        # Analysis code for Research Question 2
 └── README.md
+└── main.py           # Main entry point for training and evaluation
 ```
 **Note:** The `dataloaders/` and `data/` directories are not included in this anonymized repository due to data privacy and human-subject protection requirements.
 
@@ -100,16 +101,7 @@ Key arguments supported by `scripts/main.py` include:
 
 ---
 
-## Data and Dataloaders
 
-Due to data privacy constraints and human-subject protections, the raw data, preprocessed physiological features, and data loading code are not included in this repository. The omitted components include:
-
-- The `data/` directory containing physiological features and language embeddings  
-- The `dataloaders/` module responsible for loading participant data  
-
-The provided code assumes access to preprocessed window-level physiological features and fixed participant-level language embeddings, as described in the paper and Appendix. Input formats and data usage are documented in the manuscript to support conceptual reproducibility.
-
----
 
 
 
