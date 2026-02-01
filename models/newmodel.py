@@ -120,7 +120,7 @@ def map_gate_raw(x, mode="tanh", a=1.0, b=0.5):
         
 
 
-class TransMemNet(UnifiedTwoFlowBase):
+class ReSPIRE(UnifiedTwoFlowBase):
     """
     Gate + mem-conditioned logit temperature (no additive bias).
     """
@@ -351,5 +351,6 @@ class EnsembleNet(UnifiedTwoFlowBase):
         t_base = self.encoder(phys_feat)
         logits = torch.stack([h(t_base) for h in self.heads], dim=0).mean(dim=0)
         return {"logits": logits}
+
 
 
