@@ -1,6 +1,6 @@
-# TransMemNet: Resilience-Guided Physiological Craving Detection
+# ReSPIR
 
-This repository contains the implementation for **TransMemNet**, a resilience-guided framework for physiological craving detection under subject-independent evaluation. The code supports training and evaluation of the proposed model, ablation variants, and baseline methods using a unified training pipeline.
+This repository contains the implementation for **ReSPIR**, a resilience-conditioned stress-pretrained inference for craving detection in opioid use disorder under subject-independent evaluation. The code supports training and evaluation of the proposed model, ablation variants, and baseline methods using a unified training pipeline.
 
 This anonymized repository is provided to support reproducibility during double-blind review.
 
@@ -52,7 +52,7 @@ The main script performs the following steps:
 The `models/` directory includes implementations of:
 
 - **Proposed model**
-  - TransMemNet (resilience-guided physiological inference)
+  - ReSPIRE (resilience-guided physiological inference)
 
 - **Ablation models**
   - Variants that selectively remove or replace components (e.g., feature gating, decision sensitivity, stress anchoring)
