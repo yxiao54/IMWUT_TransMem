@@ -1,14 +1,15 @@
 # models/factory.py
 
-
-from models.newmodel import (ConcatNet, BaselineNet, SelfAttnNet, CrossAttnNet, TransMemNet, MoENet, EnsembleNet)
-from models.baseline import (
- 
-    ProfileBiasNet,
+from models.mymodel import (
+    ReSPIRE,
+    BaselineNet,
+    ConcatNet,
+    SelfAttnNet,
+    CrossAttnNet,
+    MoENet,
     DecisionScaleOnlyNet,
-    PhysGateNet,
+    PhysOnlyNet,
     PersonalizedOnlyNet,
-    FixedFusionNet,
     EnvInvariantNet,
 )
 
@@ -30,16 +31,13 @@ def get_model(
 
     
     drop = kwargs.get("drop", 0.2)
-    if embedding_mode=='old':
-        mem_input_dim =  3072
-    elif embedding_mode=='small':
+    if embedding_mode=='small':
         mem_input_dim =  3072
     elif embedding_mode=='large':
         mem_input_dim =  3072*2
     else:
          mem_input_dim =  3072
-
-
+     
     if model_name == "concate":
         model = ConcatNet(input_dim, mem_input_dim, hidden, num_class, drop)
 
@@ -53,28 +51,20 @@ def get_model(
         model = CrossAttnNet(input_dim, mem_input_dim, hidden, num_class, drop)
 
     elif model_name == "ours":
-        model = TransMemNet(input_dim, mem_input_dim, hidden, num_class, drop,groups=groups)
+        model = ReSPIRE(input_dim, mem_input_dim, hidden, num_class, drop,groups=groups)
         if baseline_ckpt is not None:
             model.load_baseline_from_ckpt(baseline_ckpt)
 
-            
     elif model_name == "moe":
         model = MoENet(input_dim, mem_input_dim, hidden, num_class, drop)
-
-    elif model_name == "ensemble":
-        model = EnsembleNet(input_dim, mem_input_dim, hidden, num_class, drop)
-    
-
-    elif model_name == "profilebias":
-        model = ProfileBiasNet(input_dim, mem_input_dim, hidden, num_class, drop)
 
     elif model_name == "decisionscaleonly":
         model = DecisionScaleOnlyNet(
             input_dim, mem_input_dim, hidden, num_class, drop, **kwargs
         )
 
-    elif model_name == "physgate":
-        model = PhysGateNet(
+    elif model_name == "physonly":
+        model = PhysOnlyNet(
             input_dim, mem_input_dim, hidden, num_class, drop, **kwargs
         )
 
@@ -82,12 +72,6 @@ def get_model(
         model = PersonalizedOnlyNet(
             input_dim, mem_input_dim, hidden, num_class, drop, **kwargs
         )
-
-    elif model_name == "fixedfusion":
-        model = FixedFusionNet(
-            input_dim, mem_input_dim, hidden, num_class, drop, **kwargs
-        )
-
     
     elif model_name in ["irm",'vrex','dro']:
         model = EnvInvariantNet(input_dim, mem_input_dim, hidden, num_class, drop)
@@ -100,3 +84,25 @@ def get_model(
 
 
     return model
+def get_sklearn_model(name, trial=None):
+    name = name.lower()
+
+    if name == "svm":
+        # === Paper-aligned Gaussian SVM ===
+        return SVC(
+            kernel="rbf",
+            C=1.0,
+            gamma="scale",          # ? Gaussian / RBF
+            probability=True,
+            class_weight="balanced"
+        )
+
+    elif name == "knn":
+        return KNeighborsClassifier(
+            n_neighbors=5,
+            weights="distance",
+            metric="euclidean"
+        )
+
+    else:
+        raise ValueError(f"Unknown sklearn model: {name}")
