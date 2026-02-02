@@ -15,7 +15,7 @@ warnings.filterwarnings("ignore")
 # ============================================================
 # CONFIG
 # ============================================================
-PARQUET_PATH = "data/windows.parquet"   # <<< 改成你的路径
+PARQUET_PATH = "data/windows.parquet"   # 
 OUT_PREFIX = "rq1_final"
 
 
