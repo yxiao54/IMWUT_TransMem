@@ -1,230 +1,198 @@
-# rq1_final_global_zscore.py
 # ============================================================
-# RQ1 FINAL SCRIPT (STATISTICAL / MECHANISTIC ANALYSIS)
-# Global z-score → task-level aggregation → jelly baseline delta
+# FULL END-TO-END RQ1 PIPELINE 
+# From data/windows.parquet to stress / craving / resilience PCA results
 # ============================================================
 
+import os
+import warnings
 import numpy as np
 import pandas as pd
 import statsmodels.api as sm
 import statsmodels.formula.api as smf
+from sklearn.decomposition import PCA
 from statsmodels.stats.multitest import multipletests
-import warnings
+
 warnings.filterwarnings("ignore")
 
-# ============================================================
-# CONFIG
-# ============================================================
-PARQUET_PATH = "data/windows.parquet"   # 
-OUT_PREFIX = "rq1_final"
+# ===================== CONFIG =====================
+PARQUET_PATH = "data/windows.parquet"
+OUT_DIR = "rq1_outputs"
+os.makedirs(OUT_DIR, exist_ok=True)
 
 
 MIN_WINDOWS = 3
-Z_CLIP = 5.0          # winsorization after z-score
-MIN_STD = 1e-6        # minimum variance for modeling
+MIN_STD = 1e-6
+Z_CLIP = 5.0
 
-DROP_FEATURES = {
-    'BVP_BVP_entropy','ACC_x_entropy','ACC_y_entropy','ACC_z_entropy',
-    'Phasic_phasic_entropy','HRV_ULF','HRV_VLF','HRV_LF','HRV_LFHF',
-    'HRV_LFn','HRV_SDANN1','HRV_SDNNI1','HRV_SDANN2','HRV_SDNNI2',
-    'HRV_SDANN5','HRV_SDNNI5'
-}
+# ===================== UTILITIES =====================
+def majority_vote(x):
+    x = x.dropna().astype(int)
+    if len(x) == 0:
+        return np.nan
+    return int(x.sum() >= len(x) / 2)
 
-
-
-
-# ============================================================
-# LOAD & FEATURE SELECTION
-# ============================================================
-def load_windows():
-    df = pd.read_parquet(PARQUET_PATH)
-    df["user"] = df["user"].astype(str)
-    df = df[df["task"].isin(TASKS_KEEP)].copy()
-    return df
-
-def get_feature_cols(df):
-    meta = {
-        "user","task","stress","craving",
-        "window_start_sec","rr_count","hrv_rr_valid",
-        "segment_start_utc","ema_time_utc"
-    }
-    return [c for c in df.columns if c not in meta and c not in DROP_FEATURES]
-
-# ============================================================
-# GLOBAL Z-SCORE (RQ1 ONLY)
-# ============================================================
-def global_zscore(df, feature_cols):
+def global_zscore(df, cols):
     df = df.copy()
-    for f in feature_cols:
-        mu = df[f].mean()
-        sd = df[f].std()
-        if sd > 0:
-            z = (df[f] - mu) / sd
-            df[f] = z.clip(-Z_CLIP, Z_CLIP)
+    for c in cols:
+        mu, sd = df[c].mean(), df[c].std()
+        df[c] = ((df[c] - mu) / sd).clip(-Z_CLIP, Z_CLIP) if sd > 0 else 0.0
+    return df
+
+def gee_fit(df, y, x):
+    """
+    Generalized GEE fit that handles:
+      - numeric predictors like 'stress' or 'craving' (use param name x)
+      - categorical predictor 'Resilience' (use C(Resilience)[T.Low] key)
+    Returns dict or None.
+    """
+    # prepare subframe
+    cols_needed = ["user", "Group", "n_windows", y]
+    # x may be categorical name 'Resilience' or numeric column
+    cols_needed.append(x)
+    sub = df[cols_needed].dropna()
+    if len(sub) < 10 or sub[y].std() < MIN_STD:
+        return None
+
+    # build formula
+    if x == "Resilience":
+        formula = f"{y} ~ C(Resilience) + C(Group) + n_windows"
+    else:
+        formula = f"{y} ~ {x} + C(Group) + n_windows"
+
+    try:
+        model = smf.gee(
+            formula,
+            groups="user",
+            data=sub,
+            family=sm.families.Gaussian(),
+            cov_struct=sm.cov_struct.Exchangeable()
+        )
+        res = model.fit(cov_type="robust")
+
+        # determine parameter key to extract
+        if x == "Resilience":
+            key = "C(Resilience)[T.Low]"
+            if key not in res.params.index:
+                # robust fallback: find any param that starts with 'C(Resilience)'
+                candidates = [k for k in res.params.index if k.startswith("C(Resilience)")]
+                key = candidates[0] if candidates else None
         else:
-            df[f] = 0.0
-    return df
+            key = x
+            if key not in res.params.index:
+                # fallback: sometimes factor encoded differently; try to find exact match ignoring dtype
+                candidates = [k for k in res.params.index if k.endswith(f"{x}")]
+                key = candidates[0] if candidates else None
 
-# ============================================================
-# TASK-LEVEL AGGREGATION
-# ============================================================
-def aggregate_task_level(df, feature_cols):
-    agg = {}
-    for f in feature_cols:
-        agg[f+"_mean"] = (f, "mean")
-        agg[f+"_sd"]   = (f, "std")
+        if key is None or key not in res.params.index:
+            return None
 
-    task_df = (
-        df.groupby(["user","task"])
-          .agg(**agg, n_windows=("window_start_sec","count"))
-          .reset_index()
-    )
-    task_df = task_df[task_df["n_windows"] >= MIN_WINDOWS]
-    return task_df
-
-def compute_baseline_delta(task_df, feature_cols):
-    mean_cols = [f+"_mean" for f in feature_cols]
-    baseline = (
-        task_df[task_df["task"] == BASELINE_TASK]
-        [["user"] + mean_cols]
-        .rename(columns={c: c+"_baseline" for c in mean_cols})
-    )
-    df = task_df.merge(baseline, on="user", how="left")
-    for f in feature_cols:
-        df[f+"_delta"] = df[f+"_mean"] - df[f+"_mean_baseline"]
-    return df
-
-# ============================================================
-# LABELS
-# ============================================================
-def add_labels(df):
-    def group_map(u):
-        if u in OUD_USERS:
-            return "OUD"
-        if u in CONTROL_USERS:
-            return "Control"
+        return {
+            "coef": res.params[key],
+            "se": res.bse[key],
+            "p": res.pvalues[key],
+            "ci_low": res.conf_int().loc[key][0],
+            "ci_high": res.conf_int().loc[key][1],
+            "n_obs": len(sub)
+        }
+    except Exception as e:
+        # on any failure, return None (keeps pipeline robust)
         return None
 
-    def res_map(u):
-        if u in resilient_high:
-            return "High"
-        if u in resilient_low:
-            return "Low"
-        return None
-
-    df["Group"] = df["user"].map(group_map)
-    df["Resilience"] = df["user"].map(res_map)
-    df = df.dropna(subset=["Group","Resilience"])
-
-    df["Group"] = pd.Categorical(df["Group"], ["Control","OUD"])
-    df["Resilience"] = pd.Categorical(df["Resilience"], ["High","Low"])
-    return df
-
-# ============================================================
-# GEE & LMM (FEATURE SCREENING INCLUDED)
-# ============================================================
-def run_gee(task_df, feature_cols):
-    rows = []
-    for f in feature_cols:
-        y = f + "_delta"
-        sub = task_df[["user","Group","Resilience","n_windows",y]].dropna()
-
-        if sub.shape[0] < 10:
-            continue
-        if sub[y].std() < MIN_STD:
-            continue
-        if sub["n_windows"].nunique() < 2:
-            continue
-        if np.abs(sub[y]).max() > Z_CLIP * 1.5:
-            continue
-
-        try:
-            model = smf.gee(
-                f"{y} ~ C(Resilience) + C(Group) + n_windows",
-                groups="user",
-                data=sub,
-                family=sm.families.Gaussian(),
-                cov_struct=sm.cov_struct.Exchangeable()
-            )
-            res = model.fit(cov_type="robust")
-            key = "C(Resilience)[T.Low]"
-            rows.append({
-                "feature": f,
-                "coef_low_vs_high": res.params[key],
-                "se": res.bse[key],
-                "p": res.pvalues[key],
-                "ci_low": res.conf_int().loc[key][0],
-                "ci_high": res.conf_int().loc[key][1]
-            })
-        except Exception:
-            continue
-
-    out = pd.DataFrame(rows)
-    if len(out) > 0:
-        out["q"] = multipletests(out["p"], method="fdr_bh")[1]
-    return out.sort_values("q")
-
-def run_lmm(task_df, feature_cols):
-    rows = []
-    for f in feature_cols:
-        y = f + "_delta"
-        sub = task_df[["user","Group","Resilience","n_windows",y]].dropna()
-        if sub.shape[0] < 10 or sub[y].std() < MIN_STD:
-            continue
-        try:
-            md = smf.mixedlm(
-                f"{y} ~ C(Resilience) + C(Group) + n_windows",
-                sub,
-                groups=sub["user"]
-            )
-            res = md.fit(reml=False)
-            key = "C(Resilience)[T.Low]"
-            rows.append({
-                "feature": f,
-                "coef_low_vs_high": res.params.get(key, np.nan),
-                "p": res.pvalues.get(key, np.nan)
-            })
-        except Exception:
-            continue 
-    return pd.DataFrame(rows)
-
-# ============================================================
-# MAIN
-# ============================================================
+# ===================== MAIN =====================
 def main():
-    print("Loading windows...")
-    win_df = load_windows()
-    feature_cols = get_feature_cols(win_df)
+    print("Loading parquet...")
+    win = pd.read_parquet(PARQUET_PATH)
+    win["user"] = win["user"].astype(str)
 
-    print(f"{len(feature_cols)} features detected.")
+    stress_col = "stress" if "stress" in win.columns else None
+    craving_col = "Craving_bin" if "Craving_bin" in win.columns else None
 
-    print("Applying global z-score (RQ1)...")
-    win_df = global_zscore(win_df, feature_cols)
+    meta_cols = {"user","task","window_start_sec","segment_start_utc","ema_time_utc"}
+    if stress_col: meta_cols.add(stress_col)
+    if craving_col: meta_cols.add(craving_col)
 
-    print("Aggregating to task-level...")
-    task_df = aggregate_task_level(win_df, feature_cols)
+    feature_cols = [c for c in win.columns if c not in meta_cols]
+    win = global_zscore(win, feature_cols)
 
-    print("Computing jelly baseline deltas...")
-    task_df = compute_baseline_delta(task_df, feature_cols)
+    # ---------- task-level aggregation ----------
+    agg = {f+"_mean": (f,"mean") for f in feature_cols}
+    agg["n_windows"] = ("window_start_sec","count")
+    task = win.groupby(["user","task"], as_index=False).agg(**agg)
+    task = task[task["n_windows"] >= MIN_WINDOWS]
 
-    print("Adding labels...")
-    task_df = add_labels(task_df)
+    # ---------- baseline delta ----------
+    base = task[task["task"] == BASELINE_TASK][["user"] + [f+"_mean" for f in feature_cols]]
+    base = base.rename(columns={c: c+"_baseline" for c in base.columns if c != "user"})
+    task = task.merge(base, on="user", how="left")
+    for f in feature_cols:
+        task[f+"_delta"] = task[f+"_mean"] - task[f+"_mean_baseline"]
 
-    task_df.to_csv(f"{OUT_PREFIX}_task_level.csv", index=False)
+    # ---------- labels ----------
+    task["Group"] = task["user"].map(lambda u: "OUD" if u in OUD_USERS else "Control")
+    task["Resilience"] = task["user"].map(lambda u: "High" if u in resilient_high else "Low")
 
-    print("Running GEE (population-average)...")
-    gee_res = run_gee(task_df, feature_cols)
-    gee_res.to_csv(f"{OUT_PREFIX}_gee_results.csv", index=False)
+    # ---------- stress / craving ----------
+    if stress_col:
+        s = win.groupby(["user","task"])[stress_col].apply(majority_vote).reset_index(name="stress")
+        task = task.merge(s, on=["user","task"], how="left")
+    else:
+        task["stress"] = task["task"].isin(STRESS_TASKS).astype(int)
 
-    print("Running LMM (sensitivity)...")
-    lmm_res = run_lmm(task_df, feature_cols)
-    lmm_res.to_csv(f"{OUT_PREFIX}_lmm_results.csv", index=False)
+    if craving_col:
+        c = win.groupby(["user","task"])[craving_col].apply(majority_vote).reset_index(name="craving")
+        task = task.merge(c, on=["user","task"], how="left")
+    else:
+        task["craving"] = np.nan
 
-    print("Done.")
-    print("Outputs:")
-    print(f" - {OUT_PREFIX}_task_level.csv")
-    print(f" - {OUT_PREFIX}_gee_results.csv")
-    print(f" - {OUT_PREFIX}_lmm_results.csv")
+    task["Group"] = pd.Categorical(task["Group"], ["Control","OUD"])
+    task["Resilience"] = pd.Categorical(task["Resilience"], ["High","Low"])
+
+    task.to_csv(os.path.join(OUT_DIR,"task_level_from_raw.csv"), index=False)
+
+    # ===================== PCA-ONLY SYSTEM-LEVEL (ANALYSIS C) =====================
+    SYSTEMS = {
+        "Cardiovascular":[c+"_delta" for c in feature_cols if c.startswith(("BVP_","HR_HR_","HR_l2_","HRV_"))],
+        "Electrodermal":[c+"_delta" for c in feature_cols if c.startswith(("Tonic_","Phasic_","EDA_"))],
+        "Movement":[c+"_delta" for c in feature_cols if c.startswith("ACC_")],
+        "Thermoregulation":[c+"_delta" for c in feature_cols if c.startswith("TEMP_")]
+    }
+
+    FACTORS = ["stress","craving","Resilience"]
+    rows = []
+
+    print("\n===== PCA SYSTEM-LEVEL RESULTS =====")
+
+    for x in FACTORS:
+        for sys, cols in SYSTEMS.items():
+            cols = [c for c in cols if c in task.columns and task[c].std() > MIN_STD]
+            if len(cols) < 2:
+                continue
+
+            Z = (task[cols] - task[cols].mean()) / (task[cols].std() + 1e-8)
+            Z = Z.fillna(0.0)
+
+            pca = PCA(n_components=1)
+            task[f"{sys}_pc1"] = pca.fit_transform(Z.values).ravel()
+
+            out = gee_fit(task, f"{sys}_pc1", x)
+            if out:
+                rows.append({
+                    "factor": x,
+                    "system": sys,
+                    "explained_var": pca.explained_variance_ratio_[0],
+                    "n_features": len(cols),
+                    **out
+                })
+                print(
+                    f"{x:10s} | {sys:16s} | "
+                    f"beta={out['coef']:.3f}, p={out['p']:.3g}, "
+                    f"PC1 var={pca.explained_variance_ratio_[0]:.3f}"
+                )
+
+    out_df = pd.DataFrame(rows)
+    out_df.to_csv(os.path.join(OUT_DIR,"rq1_system_pca_all_factors.csv"), index=False)
+    print("\nSaved rq1_system_pca_all_factors.csv")
+    print("PIPELINE COMPLETE.")
 
 if __name__ == "__main__":
     main()
